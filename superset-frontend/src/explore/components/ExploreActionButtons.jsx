@@ -23,6 +23,7 @@ import { t } from '@superset-ui/translation';
 
 import URLShortLinkButton from '../../components/URLShortLinkButton';
 import EmbedCodeButton from './EmbedCodeButton';
+import PublishChartButton from './PublishChartButton';
 import DisplayQueryButton from './DisplayQueryButton';
 import { exportChart, getExploreLongUrl } from '../exploreUtils';
 
@@ -62,6 +63,13 @@ export default function ExploreActionButtons({
 
       {latestQueryFormData && (
         <EmbedCodeButton latestQueryFormData={latestQueryFormData} />
+      )}
+
+      {latestQueryFormData && (
+        <PublishChartButton
+          latestQueryFormData={latestQueryFormData}
+          slice={slice}
+        />
       )}
 
       {latestQueryFormData && (

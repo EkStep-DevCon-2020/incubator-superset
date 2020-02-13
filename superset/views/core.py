@@ -17,6 +17,7 @@
 # pylint: disable=C,R,W
 import logging
 import re
+import pdb
 from contextlib import closing
 from datetime import datetime, timedelta
 from typing import Any, cast, Dict, List, Optional, Union
@@ -757,6 +758,30 @@ class Superset(BaseSupersetView):
                 )
             return redirect("/dashboard/list/")
         return self.render_template("superset/import_dashboards.html")
+
+
+    @event_logger.log_this
+    @api
+    @expose("/publish_chart", methods=["GET", "POST"])
+    def publish_chart(self, datasource_type=None, datasource_id=None):
+        user_id = g.user.get_id() if g.user else None
+        form_data, slc = get_form_data(use_slice_data=True)
+        try:
+            datasource_id, datasource_type = get_datasource_info(
+                datasource_id, datasource_type, form_data
+            )
+        except SupersetException as e:
+            return json_error_response(utils.error_msg_from_exception(e))
+        viz_obj = get_viz(
+            datasource_type=datasource_type,
+            datasource_id=datasource_id,
+            form_data=form_data,
+            force=False,
+        )
+        pdb.set_trace()
+
+        csv_string = viz_obj.get_csv()
+
 
     @event_logger.log_this
     @has_access
