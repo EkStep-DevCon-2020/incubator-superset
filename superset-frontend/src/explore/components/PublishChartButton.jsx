@@ -18,7 +18,15 @@
  */
 import React from 'react';
 import PropTypes from 'prop-types';
-import { Popover, OverlayTrigger, Button } from 'react-bootstrap';
+import { 
+  Popover,
+  OverlayTrigger,
+  Button,
+  Modal,
+  Row,
+  Col,
+  FormControl,
+  FormGroup, } from 'react-bootstrap';
 import { t } from '@superset-ui/translation';
 import { SupersetClient } from '@superset-ui/connection';
 
@@ -27,7 +35,6 @@ import ModalTrigger from './../../components/ModalTrigger';
 import { getExploreLongUrl } from '../exploreUtils';
 
 const propTypes = {
-  latestQueryFormData: PropTypes.object.isRequired,
   slice: PropTypes.object,
 };
 
@@ -36,8 +43,11 @@ export default class PublishChartButton extends React.Component {
     super(props);
     this.state = {
       submitting: false,
+      name: " ",
+      description: " ",
+      x_axis_label: " ",
+      y_axis_label: " ",
     };
-    this.handleInputChange = this.handleInputChange.bind(this);
   }
 
   handleInputChange(e) {
@@ -48,11 +58,27 @@ export default class PublishChartButton extends React.Component {
     this.setState(data);
   }
 
+  // componentWillMount(){
+  //   SupersetClient.get({
+  //     url: "/superset/chart_config",
+  //   }).then(({ json }) => {
+  //     console.log(json)
+  //   }).catch(() =>
+  //     console.log("asdasd")
+  //   );
+  // }
+
   publishChart = () => {
     const { slice } = this.props
+    const {
+      name,
+      description,
+      x_axis_label,
+      y_axis_label
+    } = this.state
     SupersetClient.post({
       url: "/superset/publish_chart",
-      postPayload: { form_data: slice.form_data },
+      postPayload: { form_data: slice.form_data, chart_data: { name, description, x_axis_label, y_axis_label } },
     }).then(({ json }) => {
       console.log(json)
     }).catch(() =>
@@ -61,9 +87,68 @@ export default class PublishChartButton extends React.Component {
   }
 
   renderQueryModalBody(){
-    const { submitting } = this.state
+    const { submitting, name, description, x_axis_label, y_axis_label } = this.state
     return (
       <div>
+        <Row>
+          <Col md={6}>
+            <FormGroup>
+              <label className="control-label" htmlFor="name">
+                {t('Name')}
+              </label>
+              <FormControl
+                name="name"
+                type="text"
+                bsSize="sm"
+                value={name}
+                onChange={event => this.handleInputChange(event)}
+              />
+            </FormGroup>
+            <FormGroup>
+              <label className="control-label" htmlFor="description">
+                {t('Description')}
+              </label>
+              <FormControl
+                name="description"
+                type="text"
+                componentClass="textarea"
+                bsSize="sm"
+                value={description}
+                onChange={event => this.handleInputChange(event)}
+                style={{ maxWidth: '100%' }}
+              />
+              <p className="help-block">
+                {t(
+                  'The description will be displayed in the portal dashboard.',
+                )}
+              </p>
+            </FormGroup>
+            <FormGroup>
+              <label className="control-label" htmlFor="x_axis_label">
+                {t('X-Axis Label')}
+              </label>
+              <FormControl
+                name="x_axis_label"
+                type="text"
+                bsSize="sm"
+                value={x_axis_label}
+                onChange={event => this.handleInputChange(event)}
+              />
+            </FormGroup>
+            <FormGroup>
+              <label className="control-label" htmlFor="y_axis_label">
+                {t('Y-Axis Label')}
+              </label>
+              <FormControl
+                name="y_axis_label"
+                type="text"
+                bsSize="sm"
+                value={y_axis_label}
+                onChange={event => this.handleInputChange(event)}
+              />
+            </FormGroup>
+          </Col>
+        </Row>
         <Button
           onClick={this.publishChart}
           type="button"

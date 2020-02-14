@@ -18,6 +18,10 @@
 import logging
 import re
 import pdb
+import os
+import requests as http_client
+from pathlib import Path
+from io import StringIO
 from contextlib import closing
 from datetime import datetime, timedelta
 from typing import Any, cast, Dict, List, Optional, Union
@@ -49,6 +53,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm.session import Session
 from werkzeug.routing import BaseConverter
 from werkzeug.urls import Href
+from azure.common import AzureMissingResourceHttpError
+from azure.storage.blob import BlockBlobService
+
 
 import superset.models.core as models
 from superset import (
@@ -762,10 +769,162 @@ class Superset(BaseSupersetView):
 
     @event_logger.log_this
     @api
+    @expose("/chart_config", methods=["GET"])
+    def chart_config(self):
+        url = "https://preprodall.blob.core.windows.net/reports/public/config_template.json"
+
+        config_template = http_client.get(url).json()
+
+        return self.json_response(config_template)
+
+    def post_data_to_blob(self, result_loc_):
+        try:
+            account_name = os.environ['AZURE_STORAGE_ACCOUNT']
+            account_key = os.environ['AZURE_STORAGE_ACCESS_KEY']
+            block_blob_service = BlockBlobService(account_name=account_name, account_key=account_key)
+            container_name = 'reports'
+            block_blob_service.create_blob_from_path(
+                container_name=container_name,
+                blob_name=result_loc_.parent.name + '/' + result_loc_.name,
+                file_path=str(result_loc_)
+            )
+            if result_loc_.parent.joinpath(result_loc_.name.replace('.csv', '.json')).exists():
+                block_blob_service.create_blob_from_path(
+                    container_name=container_name,
+                    blob_name=result_loc_.parent.name + '/' + result_loc_.name.replace('.csv', '.json'),
+                    file_path=str(result_loc_).replace('.csv', '.json')
+                )
+        except Exception:
+            raise Exception('Failed to post to blob!')
+
+
+    def get_data_from_blob(self, result_loc_):
+        try:
+            account_name = os.environ['AZURE_STORAGE_ACCOUNT']
+            account_key = os.environ['AZURE_STORAGE_ACCESS_KEY']
+            block_blob_service = BlockBlobService(account_name=account_name, account_key=account_key)
+
+            container_name = 'reports'
+            block_blob_service.get_blob_to_path(
+                container_name="reports",
+                blob_name= result_loc_.parent.name + '/' + result_loc_.name,
+                file_path=str(result_loc_)
+            )
+        except AzureMissingResourceHttpError:
+            raise AzureMissingResourceHttpError("Missing resource!", 404)
+        except Exception:
+            raise Exception('Could not read from blob!')
+
+    def create_json(self, csv_data, read_loc_, report_name, chart_data):
+        try:
+            df = pd.read_csv(StringIO(csv_data)).fillna('')
+            df = df.astype('str')
+            df.columns = [chart_data['x_axis_label'], chart_data['y_axis_label']]
+            df.to_csv(read_loc_.joinpath(report_name+".csv"), index=False)
+            json_file = {
+                'keys': df.columns.values.tolist(),
+                'data': json.loads(df.to_json(orient='records')),
+                'tableData': df.values.tolist()
+            }
+            with open(str(read_loc_.joinpath(report_name+".csv")).split('.csv')[0] + '.json', 'w') as f:
+                json.dump(json_file, f)
+        except Exception:
+            raise None
+
+    def generate_config(self, chart_data, report_name):
+        config_template = {
+            "id": report_name,
+            "label": chart_data['name'],
+            "title": chart_data['name'],
+            "description": chart_data['description'],
+            "dataSource": "/reports/tn/{}.json".format(report_name),
+            "charts": [
+                {
+                    "datasets": [
+                        {
+                            "dataExpr": chart_data['y_axis_label'],
+                            "label": chart_data['y_axis_label']
+                        }
+                    ],
+                    "colors": [
+                        {
+                            "borderColor": "rgb(0, 199, 134)",
+                            "backgroundColor": "rgba(0, 199, 134, 0.5)"
+                        },
+                        {
+                            "borderColor": "rgb(255, 161, 29)",
+                            "backgroundColor": "rgba(255, 161, 29, 0.5)"
+                        },
+                        {
+                            "borderColor": "rgb(255, 69, 88)",
+                            "backgroundColor": "rgba(255, 69, 88, 0.5)"
+                        }
+                    ],
+                    "labelsExpr": chart_data['x_axis_label'],
+                    "chartType": "line",
+                    "options": {
+                        "scales": {
+                            "yAxes": [
+                                {
+                                    "scaleLabel": {
+                                        "display": True,
+                                        "labelString": chart_data['y_axis_label']
+                                    }
+                                }
+                            ],
+                            "xAxes": [
+                                {
+                                    "scaleLabel": {
+                                        "display": True,
+                                        "labelString": chart_data['x_axis_label']
+                                    }
+                                }
+                            ]
+                        },
+                        "tooltips": {
+                            "intersect": False,
+                            "mode": "x-axis",
+                            "titleSpacing": 5,
+                            "bodySpacing": 5
+                        },
+                        "title": {
+                            "fontSize": 16,
+                            "display": True,
+                            "text": chart_data['name']
+                        },
+                        "legend": {
+                            "display": False
+                        },
+                        "responsive": True,
+                        "showLastUpdatedOn": True
+                    }
+                }
+            ],
+            "table": []
+        }
+        return config_template
+
+
+    @event_logger.log_this
+    @api
     @expose("/publish_chart", methods=["GET", "POST"])
     def publish_chart(self, datasource_type=None, datasource_id=None):
+        chart_data = json.loads(request.form.get('chart_data'))
+
+        report_path = Path(__file__).parent.parent.joinpath('reports', 'tn')
+        report_name = "".join(chart_data['name'].split(" "))
+
+        try:
+            self.get_data_from_blob(report_path.joinpath('config.json'))
+            with open(report_path.joinpath('config.json'), 'r') as f:
+                current_config = json.loads(f.read())
+        except Exception:
+            current_config = []
+
+        os.makedirs(report_path, exist_ok=True)
         user_id = g.user.get_id() if g.user else None
         form_data, slc = get_form_data(use_slice_data=True)
+
         try:
             datasource_id, datasource_type = get_datasource_info(
                 datasource_id, datasource_type, form_data
@@ -778,9 +937,21 @@ class Superset(BaseSupersetView):
             form_data=form_data,
             force=False,
         )
-        pdb.set_trace()
 
         csv_string = viz_obj.get_csv()
+
+        current_config.append(self.generate_config(chart_data, report_name))
+
+        with open(report_path.joinpath('config.json'), 'w') as f:
+            json.dump(current_config, f)
+
+
+        self.create_json(csv_string, report_path, report_name, chart_data)
+
+        self.post_data_to_blob(report_path.joinpath('config.json'))
+        self.post_data_to_blob(report_path.joinpath(report_name+'.csv'))
+
+        json_success({"status": "Success"})
 
 
     @event_logger.log_this
