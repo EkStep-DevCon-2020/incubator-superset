@@ -22,6 +22,7 @@ import PropTypes from 'prop-types';
 import { bindActionCreators } from 'redux';
 import { connect } from 'react-redux';
 import { t } from '@superset-ui/translation';
+import { SupersetClient } from '@superset-ui/connection';
 
 import ExploreChartPanel from './ExploreChartPanel';
 import ControlPanelsContainer from './ControlPanelsContainer';
@@ -79,6 +80,7 @@ class ExploreViewContainer extends React.Component {
       showModal: false,
       chartIsStale: false,
       refreshOverlayVisible: false,
+      reportRole: "any",
     };
 
     this.addHistory = this.addHistory.bind(this);
@@ -88,6 +90,21 @@ class ExploreViewContainer extends React.Component {
     this.onQuery = this.onQuery.bind(this);
     this.toggleModal = this.toggleModal.bind(this);
     this.handleKeydown = this.handleKeydown.bind(this);
+  }
+
+  componentWillMount(){
+    this.isReportCreatorReviewer()
+  }
+
+  isReportCreatorReviewer(){
+    SupersetClient.get({
+      url: "/superset/check_reviewer_access",
+    }).then(({ json }) => {
+      let reportRole = json.can_publish_chart ? 'creator' : json.can_review_chart ? 'reviewer': 'any'
+      this.setState({reportRole})
+    }).catch(() =>
+      console.log("asdasd")
+    );
   }
 
   componentDidMount() {
@@ -318,6 +335,7 @@ class ExploreViewContainer extends React.Component {
         refreshOverlayVisible={this.state.refreshOverlayVisible}
         addHistory={this.addHistory}
         onQuery={this.onQuery.bind(this)}
+        reportRole={this.state.reportRole}
       />
     );
   }

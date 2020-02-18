@@ -26,16 +26,22 @@ import {
   Row,
   Col,
   FormControl,
-  FormGroup, } from 'react-bootstrap';
+  FormGroup,
+  Badge
+} from 'react-bootstrap';
+
 import { t } from '@superset-ui/translation';
 import { SupersetClient } from '@superset-ui/connection';
 
 import CopyToClipboard from './../../components/CopyToClipboard';
 import ModalTrigger from './../../components/ModalTrigger';
 import { getExploreLongUrl } from '../exploreUtils';
+import * as saveModalActions from '../actions/saveModalActions';
+import { getExploreUrlAndPayload } from '../exploreUtils';
 
 const propTypes = {
   slice: PropTypes.object,
+  reportRole: PropTypes.string
 };
 
 export default class PublishChartButton extends React.Component {
@@ -43,10 +49,11 @@ export default class PublishChartButton extends React.Component {
     super(props);
     this.state = {
       submitting: false,
-      name: " ",
-      description: " ",
-      x_axis_label: " ",
-      y_axis_label: " ",
+      name: !!props.slice ? props.slice.form_data.report_name: '',
+      description: !!props.slice ? props.slice.form_data.report_name: '',
+      x_axis_label: !!props.slice ? props.slice.form_data.report_x_axis_label: '',
+      y_axis_label: !!props.slice ? props.slice.form_data.report_y_axis_label: '',
+      report_status: !!props.slice ? props.slice.form_data.report_status: ''
     };
   }
 
@@ -69,25 +76,65 @@ export default class PublishChartButton extends React.Component {
   // }
 
   publishChart = () => {
-    const { slice } = this.props
+    this.setState({ submitting: true });
+    const { slice, reportRole } = this.props
     const {
       name,
       description,
       x_axis_label,
       y_axis_label
     } = this.state
-    SupersetClient.post({
-      url: "/superset/publish_chart",
-      postPayload: { form_data: slice.form_data, chart_data: { name, description, x_axis_label, y_axis_label } },
-    }).then(({ json }) => {
-      console.log(json)
-    }).catch(() =>
-      console.log("asdasd")
-    );
+    let sliceParams = {};
+    sliceParams.slice_name = slice.slice_name;
+    sliceParams.action = 'overwrite';
+    sliceParams.slice_id = slice.slice_id;
+    slice.form_data.report_name = name
+    slice.form_data.report_description = description
+    slice.form_data.report_x_axis_label = x_axis_label
+    slice.form_data.report_y_axis_label = y_axis_label
+    slice.form_data.report_status = reportRole == 'reviewer' ? 'published' : 'review_submitted'
+
+    const { url, payload } = getExploreUrlAndPayload({
+      formData: slice.form_data,
+      endpointType: 'base',
+      force: false,
+      curUrl: null,
+      requestParams: sliceParams,
+    });
+
+    SupersetClient.post({ url, postPayload: { form_data: payload } }).then(({ json }) => {
+      if(reportRole == 'reviewer') {
+        SupersetClient.post({
+          url: "/superset/publish_chart",
+          postPayload: { form_data: slice.form_data, chart_data: { name, description, x_axis_label, y_axis_label } },
+        }).then(({ json }) => {
+          console.log(json)
+          this.setState({ submitting: false, report_status: slice.form_data.report_status });
+        }).catch(() => {
+          this.setState({ submitting: false })
+          console.log("Submission Failed")
+        });
+      } else {
+        this.setState({ report_status: slice.form_data.report_status, submitting: false })
+        console.log("Successfully submitted for review")
+      }
+    })
+    .catch(() => {
+      console.log("Save failed::Submission")
+    });
   }
 
   renderQueryModalBody(){
-    const { submitting, name, description, x_axis_label, y_axis_label } = this.state
+    const { submitting,
+            name,
+            description,
+            x_axis_label,
+            y_axis_label,
+            report_status
+    } = this.state;
+
+    const { reportRole } = this.props
+
     return (
       <div>
         <Row>
@@ -149,30 +196,41 @@ export default class PublishChartButton extends React.Component {
             </FormGroup>
           </Col>
         </Row>
-        <Button
-          onClick={this.publishChart}
-          type="button"
-          bsSize="sm"
-          bsStyle="primary"
-          className="m-r-5"
-          disabled={submitting}
-        >
-          {t('Submit')}
-        </Button>
+        {((reportRole == 'creator' && !report_status) || (reportRole=='reviewer' && report_status != 'published')) && (
+          <Button
+            onClick={this.publishChart}
+            type="button"
+            bsSize="sm"
+            bsStyle="primary"
+            className="m-r-5"
+            disabled={submitting || ( reportRole=='creator' && report_status == 'review_submitted')}
+          >
+            {reportRole=='reviewer' && (!submitting ? t('Publish'):t('Publishing'))}
+            {reportRole=='creator' && (!submitting ? t('Submit For Review'):t('Submitting'))}
+          </Button>
+        )}
+        { reportRole=='creator' && report_status == 'review_submitted' && (
+          <Badge variant="secondary">Submitted For Review</Badge>
+        )}
+        { report_status == 'published' && (
+          <Badge variant="secondary">Published in Portal</Badge>
+        )}
       </div>
     )
   }
   render() {
-    return (
+    const { report_status } = this.state
+    const { reportRole } = this.props
+    return reportRole == 'creator' || !!report_status ? (
       <ModalTrigger
         isButton
         animation={this.props.animation}
-        triggerNode={<span>{t('Publish')}</span>}
+        triggerNode={reportRole == 'creator' ? t('submit for review') : t('publish')}
         modalTitle={t('Publish chart to portal dashboard')}
         bsSize="large"
         modalBody={this.renderQueryModalBody()}
       />
-    );
+    ) : (<></>);
   }
 }
 

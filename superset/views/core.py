@@ -777,6 +777,20 @@ class Superset(BaseSupersetView):
 
         return self.json_response(config_template)
 
+    
+    @event_logger.log_this
+    @api
+    @expose("/check_reviewer_access", methods=["GET"])
+    def check_reviewer_access(self):
+        user_id = g.user.get_id() if g.user else None
+        if security_manager.can_access("can_publish_chart", "Superset"):
+            return json_success(json.dumps({"can_publish_chart": True}))
+        elif security_manager.can_access("can_review_chart", "Superset"):
+            return json_success(json.dumps({"can_review_chart": True}))
+        else:
+            return json_success({})
+
+
     def post_data_to_blob(self, result_loc_):
         try:
             account_name = os.environ['AZURE_STORAGE_ACCOUNT']
@@ -815,6 +829,7 @@ class Superset(BaseSupersetView):
         except Exception:
             raise Exception('Could not read from blob!')
 
+
     def create_json(self, csv_data, read_loc_, report_name, chart_data):
         try:
             df = pd.read_csv(StringIO(csv_data)).fillna('')
@@ -830,6 +845,7 @@ class Superset(BaseSupersetView):
                 json.dump(json_file, f)
         except Exception:
             raise None
+
 
     def generate_config(self, chart_data, report_name):
         config_template = {
@@ -861,7 +877,7 @@ class Superset(BaseSupersetView):
                         }
                     ],
                     "labelsExpr": chart_data['x_axis_label'],
-                    "chartType": "line",
+                    "chartType": chart_data['chart_type'],
                     "options": {
                         "scales": {
                             "yAxes": [
@@ -939,19 +955,19 @@ class Superset(BaseSupersetView):
         )
 
         csv_string = viz_obj.get_csv()
+        chart_data['chart_type'] = 'line' if form_data['viz_type'] == "line" else 'bar'
 
         current_config.append(self.generate_config(chart_data, report_name))
 
         with open(report_path.joinpath('config.json'), 'w') as f:
             json.dump(current_config, f)
 
-
         self.create_json(csv_string, report_path, report_name, chart_data)
 
         self.post_data_to_blob(report_path.joinpath('config.json'))
         self.post_data_to_blob(report_path.joinpath(report_name+'.csv'))
 
-        json_success({"status": "Success"})
+        return json_success(json.dumps({"status": "Success"}))
 
 
     @event_logger.log_this
@@ -1046,10 +1062,11 @@ class Superset(BaseSupersetView):
         action = request.args.get("action")
 
         if action == "overwrite" and not slice_overwrite_perm:
-            return json_error_response(
-                _("You don't have the rights to ") + _("alter this ") + _("chart"),
-                status=400,
-            )
+            # return json_error_response(
+            #     _("You don't have the rights to ") + _("alter this ") + _("chart"),
+            #     status=400,
+            # )
+            pass
 
         if action == "saveas" and not slice_add_perm:
             return json_error_response(

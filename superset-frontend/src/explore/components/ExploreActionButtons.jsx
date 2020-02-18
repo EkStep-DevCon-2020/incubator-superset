@@ -35,6 +35,7 @@ const propTypes = {
   latestQueryFormData: PropTypes.object,
   queryResponse: PropTypes.object,
   slice: PropTypes.object,
+  reportRole: PropTypes.string
 };
 
 export default function ExploreActionButtons({
@@ -44,6 +45,7 @@ export default function ExploreActionButtons({
   latestQueryFormData,
   queryResponse,
   slice,
+  reportRole
 }) {
   const exportToCSVClasses = cx('btn btn-default btn-sm', {
     'disabled disabledButton': !canDownload,
@@ -65,10 +67,11 @@ export default function ExploreActionButtons({
         <EmbedCodeButton latestQueryFormData={latestQueryFormData} />
       )}
 
-      {latestQueryFormData && (
+      {['creator', 'reviewer'].includes(reportRole) && latestQueryFormData && (
         <PublishChartButton
           latestQueryFormData={latestQueryFormData}
           slice={slice}
+          reportRole={reportRole}
         />
       )}
 
